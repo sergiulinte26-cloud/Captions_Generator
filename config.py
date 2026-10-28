@@ -1,0 +1,5 @@
+MODEL = "small"
+
+VIDEO_FPS = 30
+
+UPPERCASE = True

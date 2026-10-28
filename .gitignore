@@ -1,0 +1,42 @@
+# Python environments and caches
+env/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Generated executables and archives
+/build/
+/dist/
+
+# Visual Studio local state
+.vs/
+*.suo
+*.user
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+
+# Local media and generated subtitles
+*.mp3
+*.mp4
+*.wav
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.mov
+*.mkv
+*.srt
+*.ass
+
+# Operating system files
+Thumbs.db
+Desktop.ini
+.DS_Store
