@@ -32,7 +32,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="alignment_experiment.py" />
+    <Compile Include="build\capcut-test\prepare_copy.py" />
     <Compile Include="config.py" />
+    <Compile Include="create_capcut_test.py" />
     <Compile Include="main.py" />
     <Compile Include="phrase_alignment.py" />
     <Compile Include="subtitle_timing.py" />
@@ -54,6 +56,7 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include=".github\" />
+    <Folder Include="build\capcut-test\" />
     <Folder Include="tests\" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
