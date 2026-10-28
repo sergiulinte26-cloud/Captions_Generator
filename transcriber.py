@@ -6,6 +6,7 @@ from faster_whisper import WhisperModel
 
 from config import MODEL, VIDEO_FPS, UPPERCASE
 from subtitle_timing import align_words_to_frames
+from phrase_alignment import align_phrases
 
 print("Loading model...")
 
@@ -18,11 +19,11 @@ model = WhisperModel(
 print("Model loaded!")
 
 
-def generate_srt(audio_file, output_name=None):
+def generate_srt(audio_file, output_name=None, on_warning=None):
 
     print("Starting transcription...")
 
-    segments, _ = model.transcribe(
+    segments, info = model.transcribe(
         audio_file,
         word_timestamps=True
     )
@@ -55,8 +56,15 @@ def generate_srt(audio_file, output_name=None):
 
             words.append((text, word.start, word.end))
 
+    original = [(text, start / 1000, end / 1000)
+                for text, start, end in align_words_to_frames(words, VIDEO_FPS)]
+    result = align_phrases(audio_file, original, language=info.language)
+    if result['warnings'] and on_warning is not None:
+        on_warning("Some phrases used continuous Whisper timings instead of alignment:\n\n"
+                   + "\n".join(result['warnings'][:5]))
+
     for index, (text, start_ms, end_ms) in enumerate(
-        align_words_to_frames(words, VIDEO_FPS), start=1
+        align_words_to_frames(result['display_words'], VIDEO_FPS), start=1
     ):
         subs.append(
             pysrt.SubRipItem(

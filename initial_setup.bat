@@ -29,6 +29,12 @@ python -m venv "%~dp0env"
 if errorlevel 1 goto :failed
 
 :install
+"%PYTHON%" -c "import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] < (3, 13) else 1)"
+if errorlevel 1 (
+	echo This setup requires Python 3.10, 3.11, or 3.12 for CPU alignment.
+	echo Recreate env with a supported Python version, then run this script again.
+	goto :failed
+)
 echo Installing application dependencies and PyInstaller...
 "%PYTHON%" -m pip install -r "%~dp0requirements.txt" PyInstaller
 if errorlevel 1 goto :failed

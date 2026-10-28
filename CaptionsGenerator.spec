@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 binaries = []
 datas = []
 hiddenimports = []
-for package in ('faster_whisper', 'ctranslate2', 'onnxruntime'):
+for package in ('faster_whisper', 'ctranslate2', 'onnxruntime', 'torchaudio'):
 	package_datas, package_binaries, package_imports = collect_all(package)
 	datas += package_datas
 	binaries += package_binaries

@@ -1,13 +1,17 @@
 import sys
-
-from PySide6.QtWidgets import QApplication
-
-from ui import MainWindow
+from multiprocessing import freeze_support
 
 
-app = QApplication(sys.argv)
+def main():
+	from PySide6.QtWidgets import QApplication
+	from ui import MainWindow
 
-window = MainWindow()
-window.show()
+	app = QApplication(sys.argv)
+	window = MainWindow()
+	window.show()
+	return app.exec()
 
-sys.exit(app.exec())
+
+if __name__ == "__main__":
+	freeze_support()
+	sys.exit(main())

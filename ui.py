@@ -94,8 +94,14 @@ class MainWindow(QWidget):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         QApplication.processEvents()
 
+        alignment_warnings = []
         try:
-            output = generate_srt(self.audio_path, name)
+            output = generate_srt(self.audio_path, name, on_warning=alignment_warnings.append)
+
+        except Exception as error:
+            self.label.setText("Generation failed")
+            QMessageBox.critical(self, "Generation failed", str(error))
+            return
 
         finally:
             QApplication.restoreOverrideCursor()
@@ -105,6 +111,9 @@ class MainWindow(QWidget):
             self.generate_button.setText("Generate")
 
         self.open_button.setEnabled(True)
+
+        if alignment_warnings:
+            QMessageBox.warning(self, "Timing notice", "\n".join(alignment_warnings))
 
         QMessageBox.information(
             self,

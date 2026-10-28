@@ -2,7 +2,7 @@
 
 ## Build
 
-From this project directory, install the build tool with `env\Scripts\python.exe -m pip install PyInstaller`, then double-click `build_exe.bat`.
+Use 64-bit Python 3.10, 3.11, or 3.12. Run `initial_setup.bat` from this project directory to install the application, CPU alignment libraries, and PyInstaller, then double-click `build_exe.bat`. After pulling this update on another laptop, rerun setup before launching or rebuilding. An existing environment using a different Python version must be recreated with a supported version.
 
 Close any running copy of the packaged executable before building. After a successful build, the script automatically creates and verifies `dist\CaptionsGenerator-Windows-x64.zip`, containing the entire portable folder. It replaces the previous ZIP only after the new archive passes verification. Wait for `Package ready` before sharing; if the build or archiving fails, an older ZIP may still exist.
 
@@ -21,6 +21,10 @@ The executable is not signed. Windows or antivirus software may warn about it. O
 ## First run
 
 Whisper's `small` model weights are NOT included in the package. On a first uncached run, internet access and free disk space are needed to download the model to the user's default Hugging Face cache (normally `%USERPROFILE%\.cache\huggingface`). This happens before the window appears. Later runs reuse the cache. The model runs locally on the CPU using int8.
+
+English captions automatically receive a second, phrase-by-phrase alignment pass using the tested Wav2Vec2 English CPU model. Its weights (roughly 360 MB) download on the first generation to `%LOCALAPPDATA%\CaptionsGenerator\models`, not beside the executable. Subsequent runs reuse that cache; models are not included in the ZIP. Torch libraries increase package size and generation takes longer. Keep the console open for download and phrase progress; the GUI may not respond while processing.
+
+Words remain visible until the next word starts within each inferred phrase. Pauses of at least 200 ms in the initial 30 FPS transcript define phrase groups; first and last boundaries are model estimates, not guaranteed exact speech boundaries. One-frame words such as A are retained in SRT, although CapCut may not display them visibly. Non-English phrases, unsupported characters (including digits), and audio windows longer than 30 seconds retain continuous Whisper timings with a visible timing warning. Download or inference errors are reported rather than silently presented as successful alignment.
 
 Select or drag an MP3 into the window and click Generate. The SRT is saved beside the input MP3, so that directory must be writable. A custom output name should be a simple file name without an extension. Existing output files of the same name may be overwritten.
 

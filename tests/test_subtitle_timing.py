@@ -80,16 +80,21 @@ class SubtitleTimingTests(unittest.TestCase):
 					SimpleNamespace(words=[word("...", 1.05, 1.1),
 										   word("two", 1.1, 1.2)])]
 		model = Mock()
-		model.transcribe.return_value = (iter(segments), None)
+		model.transcribe.return_value = (iter(segments), SimpleNamespace(language='en'))
 		fake_whisper = SimpleNamespace(WhisperModel=Mock(return_value=model))
 		path = Path(__file__).resolve().parents[1] / "transcriber.py"
 		spec = importlib.util.spec_from_file_location("transcriber_test", path)
 		module = importlib.util.module_from_spec(spec)
 		with patch.dict("sys.modules", {"faster_whisper": fake_whisper}):
 			spec.loader.exec_module(module)
-		with tempfile.TemporaryDirectory() as folder:
+		with tempfile.TemporaryDirectory() as folder, patch.object(module, 'align_phrases') as align:
+			align.return_value = {'display_words': [('ONE', 1.0, 1.1), ('TWO', 1.1, 1.2)],
+				'warnings': ['Test fallback notice']}
+			notice = Mock()
 			audio = str(Path(folder) / "sample.mp3")
-			output = module.generate_srt(audio, "captions")
+			output = module.generate_srt(audio, "captions", on_warning=notice)
+			align.assert_called_once_with(audio, [('ONE', 1.0, 1.1), ('TWO', 1.1, 1.2)], language='en')
+			notice.assert_called_once()
 			self.assertEqual(output, str(Path(folder) / "captions.srt"))
 			cues = pysrt.open(output)
 			self.assertEqual([(cue.index, cue.text, cue.start.ordinal, cue.end.ordinal)
