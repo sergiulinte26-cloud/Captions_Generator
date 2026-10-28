@@ -54,12 +54,20 @@ class MainWindow(QWidget):
         layout.addWidget(QLabel("Output filename"))
         layout.addWidget(self.output_name)
         layout.addWidget(self.open_button)
+        self.capcut_button = QPushButton("Create CapCut draft...")
+        self.capcut_button.clicked.connect(self.open_capcut_generator)
+        layout.addWidget(self.capcut_button)
         self.setLayout(layout)
 
         self.select_button.clicked.connect(self.select_file)
         self.generate_button.clicked.connect(self.generate)
 
         self.open_button.clicked.connect(self.open_folder)
+
+    def open_capcut_generator(self):
+        from capcut_generator_ui import CapCutGeneratorDialog
+        dialog = CapCutGeneratorDialog(self)
+        dialog.exec()
 
     def select_file(self):
 

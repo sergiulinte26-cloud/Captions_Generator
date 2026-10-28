@@ -33,12 +33,15 @@
   <ItemGroup>
     <Compile Include="alignment_experiment.py" />
     <Compile Include="build\capcut-test\prepare_copy.py" />
+    <Compile Include="capcut_generator.py" />
+    <Compile Include="capcut_generator_ui.py" />
     <Compile Include="config.py" />
     <Compile Include="create_capcut_test.py" />
     <Compile Include="main.py" />
     <Compile Include="phrase_alignment.py" />
     <Compile Include="subtitle_timing.py" />
     <Compile Include="tests\test_alignment_experiment.py" />
+    <Compile Include="tests\test_capcut_generator.py" />
     <Compile Include="tests\test_subtitle_timing.py" />
     <Compile Include="transcriber.py" />
     <Compile Include="ui.py" />
@@ -56,6 +59,7 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include=".github\" />
+    <Folder Include="build\" />
     <Folder Include="build\capcut-test\" />
     <Folder Include="tests\" />
   </ItemGroup>
