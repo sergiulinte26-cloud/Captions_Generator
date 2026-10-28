@@ -3,13 +3,14 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, MagicMock, patch
 
 import pysrt
 
 from capcut_generator import (
 	fit_captions, generate_project, inspect_reference, project_hashes,
-	read_json, replace_captions, validate_selection, write_json,
+	read_json, replace_captions, save_freeze, validate_selection, write_json,
 )
 
 
@@ -46,6 +47,26 @@ def captioner(audio, name, on_warning=None):
 
 
 class CapCutGeneratorTests(unittest.TestCase):
+	def test_freeze_accepts_padded_rgb_rows(self):
+		import numpy as np
+		from PySide6.QtGui import QImage
+
+		pixels = np.zeros((4, 8, 3), dtype=np.uint8)[:, :5, :]
+		pixels[:] = [12, 34, 56]
+		self.assertFalse(pixels.flags.c_contiguous)
+		frame = Mock(pts=0)
+		frame.to_ndarray.return_value = pixels
+		container = MagicMock()
+		container.__enter__.return_value = container
+		container.streams.video = [SimpleNamespace(start_time=0, time_base=1)]
+		container.decode.return_value = iter([frame])
+		with tempfile.TemporaryDirectory() as directory, patch('av.open', return_value=container):
+			output = Path(directory) / 'freeze.png'
+			save_freeze('unused.mp4', 0, output)
+			image = QImage(str(output))
+			self.assertEqual((image.width(), image.height()), (5, 4))
+			self.assertEqual(image.pixelColor(4, 3).getRgb(), (12, 34, 56, 255))
+
 	def test_selection_requires_all_audio_slots(self):
 		with self.assertRaisesRegex(ValueError, 'every voiceover slot'):
 			validate_selection(fixture(), 0, 1, 2, {})

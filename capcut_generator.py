@@ -179,6 +179,7 @@ def probe_media(path, kind):
 
 def save_freeze(video, timestamp, output):
 	import av
+	import numpy as np
 	from PySide6.QtGui import QImage
 	with av.open(str(video)) as container:
 		stream = container.streams.video[0]
@@ -191,7 +192,7 @@ def save_freeze(video, timestamp, output):
 				break
 		if selected is None:
 			raise ValueError('Could not decode replacement freeze frame.')
-		pixels = selected.to_ndarray(format='rgb24')
+		pixels = np.ascontiguousarray(selected.to_ndarray(format='rgb24'))
 		image = QImage(pixels.data, pixels.shape[1], pixels.shape[0], pixels.strides[0], QImage.Format.Format_RGB888)
 		if not image.save(str(output), 'PNG'):
 			raise ValueError('Could not save replacement freeze frame.')
