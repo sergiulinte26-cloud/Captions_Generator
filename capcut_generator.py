@@ -48,9 +48,67 @@ def inspect_reference(folder):
 	return draft, tracks
 
 
+def drawing_source_map(draft, video_track):
+	videos = {m['id']: m for m in draft['materials'].get('videos', [])}
+	segments = sorted(draft['tracks'][video_track]['segments'], key=lambda s: s['target_timerange']['start'])
+	tolerance = 1000000 / float(draft.get('fps', 30))
+	groups = {}
+	sources = {}
+	total = 0
+
+	def valid_time(value):
+		return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
+
+	def source_key(material):
+		path = material.get('path')
+		if not isinstance(path, str) or not path.strip() or material.get('extra_type_option') == 2:
+			raise ValueError('Drawing source must be a video file, not an empty-path compound clip.')
+		return str(PureWindowsPath(path)).casefold()
+
+	for segment in segments:
+		material = videos.get(segment['material_id'], {})
+		if material.get('type') == 'photo':
+			if not material.get('freeze'):
+				raise ValueError('Drawing track contains a still image that is not a freeze frame.')
+			continue
+		if material.get('type') != 'video':
+			raise ValueError('Unsupported or missing drawing material.')
+		key = source_key(material)
+		duration = material.get('duration')
+		if not valid_time(duration) or duration <= 0:
+			raise ValueError('Drawing material is missing its source duration.')
+		if key not in groups:
+			groups[key] = {'offset': total, 'duration': duration}
+			total += duration
+		elif abs(groups[key]['duration'] - duration) > tolerance:
+			raise ValueError('Drawing source has inconsistent duration metadata.')
+		sources[material['id']] = groups[key]
+		source = segment.get('source_timerange') or {}
+		start, length = source.get('start'), source.get('duration')
+		if not valid_time(start) or not valid_time(length) or length <= 0 or start >= groups[key]['duration'] or start + length > groups[key]['duration'] + tolerance:
+			raise ValueError('Drawing source range falls outside its source video.')
+	if not groups:
+		raise ValueError('Drawing track must contain at least one source video.')
+	for segment in segments:
+		material = videos[segment['material_id']]
+		if material['type'] != 'photo':
+			continue
+		freeze = material['freeze']
+		source = videos.get(freeze.get('source_material_id'), {})
+		if source.get('type') != 'video':
+			raise ValueError('Freeze frame has no valid source video reference.')
+		key = source_key(source)
+		if key not in groups:
+			raise ValueError('Freeze frame source is not used on the drawing track.')
+		timestamp = freeze.get('timestamp')
+		if not valid_time(timestamp) or timestamp > groups[key]['duration'] + tolerance:
+			raise ValueError('Freeze timestamp falls outside its source video.')
+		sources[material['id']] = groups[key]
+	return sources, total
+
+
 def validate_selection(draft, video_track, audio_track, text_track, replacements, automatic=False):
 	materials = draft['materials']
-	videos = {m['id']: m for m in materials.get('videos', [])}
 	speeds = {m['id']: m for m in materials.get('speeds', [])}
 	selections = [(video_track, 'video'), (audio_track, 'audio')]
 	if not automatic:
@@ -73,19 +131,7 @@ def validate_selection(draft, video_track, audio_track, text_track, replacements
 						raise ValueError('Curve-speed clips are not supported in this first version.')
 				if segment.get('reverse'):
 					raise ValueError('Reverse playback is not supported on replacement tracks.')
-	video_segments = draft['tracks'][video_track]['segments']
-	paths = {videos[s['material_id']].get('path') for s in video_segments
-		if videos[s['material_id']].get('type') == 'video'}
-	if len(paths) != 1:
-		raise ValueError('Drawing track must use one source video plus optional freeze images.')
-	for segment in video_segments:
-		material = videos[segment['material_id']]
-		if material.get('type') == 'photo' and not material.get('freeze'):
-			raise ValueError('Drawing track contains a still image that is not a freeze frame.')
-		if material.get('type') not in ('photo', 'video'):
-			raise ValueError('Unsupported drawing material.')
-		if material.get('type') == 'video' and (material.get('duration', 0) <= 0 or not segment.get('source_timerange')):
-			raise ValueError('Drawing material is missing its source duration.')
+	drawing_source_map(draft, video_track)
 	if automatic:
 		return
 	if set(replacements) != {s['id'] for s in draft['tracks'][audio_track]['segments']}:
@@ -245,6 +291,7 @@ def generate_project(reference, drawing, replacements, video_track, audio_track,
 		raise ValueError('Reference contains symbolic links; use a normal local project copy.')
 	draft, _ = inspect_reference(reference)
 	validate_selection(draft, video_track, audio_track, text_track, replacements, automatic=automatic)
+	source_map, source_duration = drawing_source_map(draft, video_track)
 	if automatic:
 		from capcut_assets import scan_library, MEME_EXTENSIONS, SOUND_EXTENSIONS
 		scan_library(meme_folder, MEME_EXTENSIONS)
@@ -280,39 +327,47 @@ def generate_project(reference, drawing, replacements, video_track, audio_track,
 		shutil.copy2(drawing, video_copy)
 		final_video = (final_assets / video_copy.name).as_posix()
 		videos = {m['id']: copy.deepcopy(m) for m in draft['materials']['videos']}
+		replacement_ids = {}
+		freeze_references = []
+		ratio = video_info['duration'] / source_duration
 		for index, segment in enumerate(draft['tracks'][video_track]['segments']):
 			original = videos[segment['material_id']]
+			group = source_map[original['id']]
 			updates = {'path': final_video, 'width': video_info['width'], 'height': video_info['height'],
 				'material_name': drawing.name}
 			if original['type'] == 'video':
-				ratio = video_info['duration'] / original['duration']
 				source = segment['source_timerange']
-				first = round(source['start'] * ratio)
-				last = min(video_info['duration'], round((source['start'] + source['duration']) * ratio))
+				first = round((group['offset'] + source['start']) * ratio)
+				last = round((group['offset'] + min(group['duration'], source['start'] + source['duration'])) * ratio)
 				if first < 0 or last <= first:
 					raise ValueError('Drawing source range falls outside replacement video.')
+				for keyframes in segment.get('common_keyframes', []):
+					for keyframe in keyframes.get('keyframe_list', []):
+						keyframe['time_offset'] = round(first + (keyframe['time_offset'] - source['start']) * (last - first) / source['duration'])
 				segment['source_timerange'] = {'start': first, 'duration': last - first}
 				set_speed(draft, segment, (last - first) / segment['target_timerange']['duration'])
 				updates['duration'] = video_info['duration']
 			else:
 				freeze = copy.deepcopy(original['freeze'])
-				source_video = videos.get(freeze.get('source_material_id'))
-				if not source_video or source_video.get('duration', 0) <= 0:
-					raise ValueError('Freeze frame has no valid source video reference.')
-				timestamp = min(video_info['duration'] - 1, max(0, round(freeze['timestamp'] * video_info['duration'] / source_video['duration'])))
+				group_start = round(group['offset'] * ratio)
+				group_end = round((group['offset'] + group['duration']) * ratio)
+				if group_end <= group_start:
+					raise ValueError('Replacement video is too short for the drawing source groups.')
+				timestamp = min(group_end - 1, max(group_start, round((group['offset'] + freeze['timestamp']) * ratio)))
 				progress(f'Creating freeze frame {index + 1}...')
 				image_name = f'freeze_{index}.png'
 				save_freeze(video_copy, timestamp, assets / image_name)
 				freeze.update(timestamp=timestamp, source_material_path=final_video, reverse_material_path='')
 				updates.update(path=(final_assets / image_name).as_posix(), freeze=freeze, material_name='Freeze')
-			replace_material(draft, 'videos', segment, updates)
+			material = replace_material(draft, 'videos', segment, updates)
+			if original['type'] == 'video':
+				replacement_ids[original['id']] = material['id']
+				replacement_ids.setdefault(group['offset'], material['id'])
+			else:
+				freeze_references.append((material['freeze'], group['offset']))
 		# Freeze metadata must refer to a replacement source, not to the old drawing.
-		active_videos = {m['id']: m for m in draft['materials']['videos']}
-		new_video_id = next(s['material_id'] for s in draft['tracks'][video_track]['segments'] if active_videos[s['material_id']]['type'] == 'video')
-		for segment in draft['tracks'][video_track]['segments']:
-			material = active_videos[segment['material_id']]
-			if material.get('freeze'):
-				material['freeze']['source_material_id'] = new_video_id
+		for freeze, offset in freeze_references:
+			freeze['source_material_id'] = replacement_ids.get(freeze['source_material_id'], replacement_ids[offset])
 		if automatic:
 			from capcut_assets import assemble_automatic
 			assemble_automatic(draft, video_track, audio_track, assets, final_assets,

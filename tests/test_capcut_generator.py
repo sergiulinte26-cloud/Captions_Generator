@@ -9,7 +9,7 @@ from unittest.mock import Mock, MagicMock, patch
 import pysrt
 
 from capcut_generator import (
-	fit_captions, generate_project, inspect_reference, project_hashes,
+	drawing_source_map, fit_captions, generate_project, inspect_reference, project_hashes,
 	read_json, replace_captions, save_freeze, validate_selection, write_json,
 )
 
@@ -47,6 +47,101 @@ def captioner(audio, name, on_warning=None):
 
 
 class CapCutGeneratorTests(unittest.TestCase):
+	def test_drawing_source_path_aliases_reuse_interval(self):
+		draft = fixture()
+		original = draft['materials']['videos'][0]
+		original['path'] = 'C:/Drawing/old.mp4'
+		alias = dict(original, id='alias', path='c:\\drawing\\OLD.mp4')
+		draft['materials']['videos'].append(alias)
+		segment = copy.deepcopy(draft['tracks'][0]['segments'][0])
+		segment.update(id='repeat', material_id='alias')
+		segment['target_timerange']['start'] = 2000000
+		draft['tracks'][0]['segments'].append(segment)
+		sources, total = drawing_source_map(draft, 0)
+		self.assertEqual(total, 2000000)
+		self.assertIs(sources['video'], sources['alias'])
+
+	def test_drawing_source_validation(self):
+		for path in ('', None):
+			with self.subTest(path=path):
+				draft = fixture()
+				draft['materials']['videos'][0]['path'] = path
+				with self.assertRaisesRegex(ValueError, 'video file'):
+					validate_selection(draft, 0, 1, None, {}, automatic=True)
+		for start, duration in ((-1, 1000000), (0, float('nan')), (2000000, 1), (0, 2100000)):
+			with self.subTest(start=start, duration=duration):
+				draft = fixture()
+				draft['tracks'][0]['segments'][0]['source_timerange'] = {'start': start, 'duration': duration}
+				with self.assertRaisesRegex(ValueError, 'source range'):
+					drawing_source_map(draft, 0)
+		draft = fixture()
+		draft['materials']['videos'][1]['freeze']['source_material_id'] = 'missing'
+		with self.assertRaisesRegex(ValueError, 'source video reference'):
+			drawing_source_map(draft, 0)
+
+	def test_multiple_sources_preserve_timeline_and_freeze_origins(self):
+		draft = fixture()
+		durations = [20900000, 19300000, 19300000, 16366666]
+		segments = []
+		materials = []
+		offset = 0
+		expected_ranges = []
+		expected_freezes = []
+		ratio = 90000000 / sum(durations)
+		for index, duration in enumerate(durations):
+			video = dict(draft['materials']['videos'][0], id=f'video{index}', duration=duration, path=f'old{index}.mp4')
+			freeze = copy.deepcopy(draft['materials']['videos'][1])
+			freeze['id'] = f'freeze{index}'
+			extra = 16514 if index == 1 else 0
+			freeze['freeze'].update(source_material_id=video['id'], source_material_path=video['path'], timestamp=duration + extra)
+			moving = copy.deepcopy(draft['tracks'][0]['segments'][0])
+			moving.update(id=f'moving{index}', material_id=video['id'])
+			moving['target_timerange']['start'] = index * 2000000
+			moving['source_timerange'] = {'start': 100000, 'duration': duration + extra - 100000}
+			moving['common_keyframes'] = [{'property_type': 'KFTypeScaleX', 'keyframe_list': [
+				{'time_offset': 100000, 'values': [1.0]}, {'time_offset': duration + extra, 'values': [1.5]}]}]
+			still = copy.deepcopy(draft['tracks'][0]['segments'][1])
+			still.update(id=f'still{index}', material_id=freeze['id'])
+			still['target_timerange']['start'] = index * 2000000 + 1000000
+			segments.extend([moving, still])
+			materials.extend([video, freeze])
+			first = round((offset + 100000) * ratio)
+			last = round((offset + duration) * ratio)
+			expected_ranges.append((first, last))
+			expected_freezes.append(last - 1)
+			offset += duration
+		draft['tracks'][0]['segments'] = segments
+		draft['materials']['videos'] = materials
+		draft['duration'] = 8000000
+		validate_selection(draft, 0, 1, None, {}, automatic=True)
+		with tempfile.TemporaryDirectory() as temporary:
+			root = Path(temporary)
+			source = root / 'reference'
+			source.mkdir()
+			write_json(source / 'draft_content.json', draft)
+			write_json(source / 'draft_meta_info.json', {'draft_id': 'original'})
+			before = project_hashes(source)
+			media = root / 'new.mp4'
+			media.write_bytes(b'media')
+			def freeze(video, timestamp, path):
+				Path(path).write_bytes(b'freeze')
+			with patch('capcut_generator.probe_media', return_value={'duration': 90000000, 'width': 1080, 'height': 1920}), patch(
+				'capcut_generator.save_freeze', side_effect=freeze) as save:
+				out, _ = generate_project(source, media, {'a1': media}, 0, 1, 2, 'generated', progress=lambda _: None, captioner=captioner)
+			self.assertEqual([call.args[1] for call in save.call_args_list], expected_freezes)
+			result = read_json(out / 'draft_content.json')
+			self.assertEqual(before, project_hashes(source))
+			self.assertEqual(result['duration'], draft['duration'])
+			active = {m['id']: m for m in result['materials']['videos']}
+			generated = result['tracks'][0]['segments']
+			self.assertEqual([s['target_timerange'] for s in generated], [s['target_timerange'] for s in segments])
+			for index, (first, last) in enumerate(expected_ranges):
+				moving, still = generated[index * 2:index * 2 + 2]
+				self.assertEqual(moving['source_timerange'], {'start': first, 'duration': last - first})
+				self.assertEqual(moving['speed'], (last - first) / 1000000)
+				self.assertEqual([k['time_offset'] for k in moving['common_keyframes'][0]['keyframe_list']], [first, last])
+				self.assertEqual(active[still['material_id']]['freeze']['source_material_id'], moving['material_id'])
+
 	def test_freeze_accepts_padded_rgb_rows(self):
 		import numpy as np
 		from PySide6.QtGui import QImage
